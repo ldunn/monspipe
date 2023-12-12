@@ -11,3 +11,4 @@ A very brief description of the files included:
 * `fluxes/calculate_flux_densities.py` - this script calculates an estimate of the pulsar flux density for a given observation. It currently relies on access to an internal database, but all of the information used is contained in the archive files.
 * `fluxes/transit_correction.py` - this contains a helper function to calculate the transit correction factor to be applied to each observation when calculating the flux density
 * `fluxes/calibrator_psrs.txt` - this file contains a list of the pulsars used to calibrate the telescope sensitivity curve and hence the flux density measurements
+* `excluded_toas.dat` - this file contains a list of observations which have been manually marked as bad and excluded from the ToA generation and glitch detection steps
