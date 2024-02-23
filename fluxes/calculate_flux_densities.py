@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import psycopg2
 import sys
+import json
 def get_mean(x,y,N):
     xm = []
     ym = []
@@ -140,29 +141,44 @@ print(f"SELECT name,snr,tim,date,mjd FROM observations WHERE name='{psr}' AND da
 cur.execute(f"SELECT name,snr,tim,date,mjd FROM observations WHERE name='{psr}' AND date='{date}'")
 for psr, snr, tim, date, mjd in cur.fetchall():
     if snr < 7:
-        print("SNR < 7. Skipping.")
-        continue
+        print("SNR < 7. Not calculating a flux density.")
+        flux = None
+    else:
+        tim_split = tim.split(' ')
+        tobs = float(tim_split[tim_split.index('-tobs')+1])
+        norm_snr = snr*np.sqrt(300/tobs)
 
-    tim_split = tim.split(' ')
-    tobs = float(tim_split[tim_split.index('-tobs')+1])
-    norm_snr = snr*np.sqrt(300/tobs)
+        nearest_time_idx = np.argmin([np.abs(t-mjd) for t in mean_times])
+        
+        transit_corr, lst_offset = transit_correction(date, psr_ra, psr_dec, tobs)
 
-    nearest_time_idx = np.argmin([np.abs(t-mjd) for t in mean_times])
-    
-    transit_corr, lst_offset = transit_correction(date, psr_ra, psr_dec, tobs)
+        if np.abs(lst_offset) > 0.5:
+            print("Observation is more than 0.5 hours away from PSR transit, skipping")
+            continue
+        print(f"Transit correction: {transit_corr}")
 
-    if np.abs(lst_offset) > 0.5:
-        print("Observation is more than 0.5 hours away from PSR transit, skipping")
-        continue
-    print(f"Transit correction: {transit_corr}")
+        corrected_snr = norm_snr/mean_snrs[nearest_time_idx]/transit_corr
+        profile_archive = f"{profile_dir}/{psr}.std"
+        psrstat_cmd = f"psrstat -c width=transitions:{{fmax=0.5}} -c width {profile_archive}"
+        psrstat_out = subprocess.check_output(psrstat_cmd, encoding="UTF-8", shell=True)
+        width = float(psrstat_out.split("=")[-1])
 
-    corrected_snr = norm_snr/mean_snrs[nearest_time_idx]/transit_corr
-    profile_archive = f"{profile_dir}/{psr}.std"
-    psrstat_cmd = f"psrstat -c width=transitions:{{fmax=0.5}} -c width {profile_archive}"
-    psrstat_out = subprocess.check_output(psrstat_cmd, encoding="UTF-8", shell=True)
-    width = float(psrstat_out.split("=")[-1])
+        flux = SEFD*np.sqrt(width/(1-width))*corrected_snr/np.sqrt(300*2*45e6) # BW is 50MHz - 2.5MHz auto-zapped on each edge
+        flux *= meridian_correction
+        flux /= flux_correction_factor
+        print(flux)
 
-    flux = SEFD*np.sqrt(width/(1-width))*corrected_snr/np.sqrt(300*2*45e6) # BW is 50MHz - 2.5MHz auto-zapped on each edge
-    flux *= meridian_correction
-    flux /= flux_correction_factor
-    print(flux)
+    results = {
+            "percent_rfi_zapped": None,
+            "dm": None,
+            "dm_err": None,
+            "dm_epoch": None,
+            "dm_chi2r": None,
+            "dm_tres": None,
+            "rm": None,
+            "rm_err": None,
+            "sn": snr,
+            "flux": flux,
+        }
+    with open(f"/fred/oz002/ldunn/meertime_dataportal/data/post/{psr}/{date}/results.json", "w") as f:
+        json.dump(results, f, indent=1)
